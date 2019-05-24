@@ -136,6 +136,7 @@ class Interpreter:
             raise ExecuteProgramError("", f"There is no jump with "
                                           f"{node.token.value}.")
 
+    @token_type_check_fabric((TokenTypes.Jump,))
     def execute_goto(self, node) -> Node:
         label = node.get_child(TokenTypes.Label).token.value
         for basic_block in self.root.get_children((TokenTypes.BasicBlock,)):
@@ -144,6 +145,7 @@ class Interpreter:
 
         raise ExecuteProgramError("", f"There is no block with {label} label.")
 
+    @token_type_check_fabric((TokenTypes.Jump,))
     def execute_if(self, node) -> Node:
         condition, true_label, false_label = \
             node.get_children((TokenTypes.Expr, TokenTypes.Label))
@@ -152,6 +154,7 @@ class Interpreter:
             return self.execute_goto(true_label)
         return self.execute_goto(false_label)
 
+    @token_type_check_fabric((TokenTypes.Jump,))
     def execute_return(self, node) -> Node:
         expr = node.get_child(TokenTypes.Expr)
         result_expr = self.execute_expr(expr)
