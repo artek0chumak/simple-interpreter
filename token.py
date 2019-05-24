@@ -1,9 +1,15 @@
 from enum import Enum, auto
 
 
+class TokenTypeError(Exception):
+    def __init__(self, expression, message):
+        self.expression = expression
+        self.message = message
+
+
 class TokenTypes(Enum):
     def __init__(self):
-        Programm = auto()
+        Program = auto()
         BasicBlock = auto()
         Assignment = auto()
         Var = auto()
@@ -12,13 +18,13 @@ class TokenTypes(Enum):
         Expr = auto()
         Label = auto()
         Op = auto()
+        Return = auto()
 
 
 class Token:
-    def __init__(self, token_type: TokenTypes, name: str):
+    def __init__(self, token_type: TokenTypes, value=None):
         self.type = token_type
-        self.name = name
-        self.value = None
+        self.value = value
 
-    def set_value(self, value):
+    def set_value(self, value) -> None:
         self.value = value

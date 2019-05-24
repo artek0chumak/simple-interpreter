@@ -1,133 +1,159 @@
-from typing import List
-
 from node import Node
-from token import Token, TokenTypes
+from token import Token, TokenTypes, TokenTypeError
+
+
+class OperatorExprError(Exception):
+    def __init__(self, expression, message):
+        self.expression = expression
+        self.message = message
+
+
+class ExecuteProgramError(Exception):
+    def __init__(self, expression, message):
+        self.expression = expression
+        self.message = message
+
+
+def token_type_check_fabric(token_types):
+    def token_type_check(function):
+        def wrapper(self: Interpreter, node: Node, *args, **kwargs):
+            if node not in token_types:
+                raise TokenTypeError("", f"{function.__name__} wait "
+                                         f"{node.token.name} in"
+                                         f"{token_types} types.")
+            return function(self, node, *args, **kwargs)
+        return wrapper
+    return token_type_check
 
 
 class Interpreter:
-    class OperatorExprError(Exception):
-        def __init__(self, expression, message):
-            self.expression = expression
-            self.message = message
+    # Class for interpret a semantic tree from code. Working only with int
+    # variables, read in the start point and print them at the end. Working only
+    # with simple arithmetic and binary operations. Conditional variable is
+    # integer, 0 or 1.
+    operations_one = {
+        '-': lambda x: -x,
+        '~': lambda x: ~x,
+    }
 
-    class ExecuteProgramError(Exception):
-        def __init__(self, expression, message):
-            self.expression = expression
-            self.message = message
+    operations_two = {
+        '+': lambda x, y: x + y,
+        '-': lambda x, y: x - y,
+        '*': lambda x, y: x * y,
+        '/': lambda x, y: x // y,
+        '%': lambda x, y: x % y,
+        '**': lambda x, y: x ** y,
+        '&': lambda x, y: x & y,
+        '|': lambda x, y: x | y,
+        '^': lambda x, y: x ^ y,
+        '=': lambda x, y: 1 if x == y else 0,
+        '~': lambda x, y: 1 if x != y else 0,
+        '>': lambda x, y: 1 if x > y else 0,
+        '<': lambda x, y: 1 if x < y else 0,
+    }
 
-    def __iter__(self, root: Node):
+    @token_type_check_fabric((TokenTypes.Program,))
+    def __iter__(self, root):
         self.root = root
         self.variables = {}
 
     def run(self) -> None:
-        for child in self.root.get_children():
-            if child.token is TokenTypes.Var:
-                token = child.token
-                tmp = input(f'{token.name} :=')
-                self.variables[token.name] = int(tmp)
-
-        queue = [i for i in self.root.get_children()
-                 if i.token.type is TokenTypes.BasicBlock]
+        # Run loaded semantic tree
+        self.initial()
+        # Use queue of basic block to execute program line by line
+        queue = [i for i in self.root.get_children((TokenTypes.BasicBlock,))]
 
         while len(queue) > 0:
             current = queue.pop(0)
-            assignments = [i for i in current.get_children()
-                           if i.token.type is TokenTypes.Assignment]
-            for assignment in assignments:
-                variable = next(i for i in assignment.get_children()
-                                if i.token.type is TokenTypes.Var)
-                expr = next(i for i in assignment.get_children()
-                            if i.token.type is TokenTypes.Expr)
+            if current.token.type is TokenTypes.Return:
+                break
+
+            for assignment in current.get_children((TokenTypes.Assignment,)):
+
+                variable = assignment.get_child(TokenTypes.Var)
+                expr = assignment.get_child(TokenTypes.Expr)
                 self.variables[variable] = self.execute_expr(expr)
 
-            jump = next(i for i in current.get_children()
-                        if i.token.type is TokenTypes.Jump)
-            if jump.token.value == 'goto':
-                queue = self.execute_goto(jump, queue)
-            elif jump.token.value == 'if':
-                queue = self.execute_if(jump, queue)
-            elif jump.token.value == 'return':
-                self.execute_return(jump)
-            else:
-                raise Interpreter.ExecuteProgramError("",
-                                                      f"There is no jump with "
-                                                      f"{jump.token.value}.")
+            jump = current.get_child(TokenTypes.Jump)
+            queue.insert(0, self.execute_jump(jump))
 
+        self.exit()
+
+    def initial(self):
+        # Initialize variables and read them from user
+        for child in self.root.get_children((TokenTypes.Var,)):
+            tmp = input(f'{child.token.value} :=')
+            self.variables[child.token.value] = int(tmp)
+
+    def exit(self):
+        # Clear all variables
+        self.variables.clear()
+
+    @token_type_check_fabric((TokenTypes.Constant, TokenTypes.Expr,
+                              TokenTypes.Var))
     def execute_expr(self, node) -> int:
+        # Execute expresion. Node has two or three children: operation and
+        # variable or constant.
         if node.token.type is TokenTypes.Constant:
             return node.token.value
         if node.token.type is TokenTypes.Var:
             return self.variables[node.token.name]
 
-        children = [i for i in node.get_children()]
+        children = [i for i in node.get_children((TokenTypes.Constant,
+                                                  TokenTypes.Expr,
+                                                  TokenTypes.Var))]
+        operator = node.get_child(TokenTypes.Op).token
         if len(children) == 1:
             arg = self.execute_expr(children[0])
-            if node.token.value == '-':
-                return - arg
-            elif node.token.value == '~':
-                return ~ arg
+            if operator.value in Interpreter.operations_one:
+                return Interpreter.operations_one[operator.value](arg)
             else:
-                raise Interpreter.OperatorExprError("", "Not suitable operator")
+                raise OperatorExprError("", "Not suitable operator.")
         elif len(children) == 2:
             arg1 = self.execute_expr(children[0])
             arg2 = self.execute_expr(children[1])
-            if node.token.value == '+':
-                return arg1 + arg2
-            elif node.token.value == '-':
-                return arg1 - arg2
-            elif node.token.value == '*':
-                return arg1 * arg2
-            elif node.token.value == '/':
-                return arg1 // arg2
-            elif node.token.value == '%':
-                return arg1 % arg2
-            elif node.token.value == '**':
-                return arg1 ** arg2
-            elif node.token.value == '&':
-                return arg1 & arg2
-            elif node.token.value == '|':
-                return arg1 | arg2
-            elif node.token.value == '^':
-                return arg1 ^ arg2
-            elif node.token.value == '=':
-                return 1 if arg1 == arg2 else 0
-            elif node.token.value == '~':
-                return 1 if arg1 != arg2 else 0
-            elif node.token.value == '<':
-                return 1 if arg1 < arg2 else 0
-            elif node.token.value == '>':
-                return 1 if arg1 > arg2 else 0
+            if operator.value in Interpreter.operations_two:
+                return Interpreter.operations_two[operator.value](arg1, arg2)
             else:
-                raise Interpreter.OperatorExprError("", "Not suitable operator")
+                raise OperatorExprError("", f"There are not {operator.value}"
+                                            f" operator.")
         else:
-            raise Interpreter.OperatorExprError("", "There are not three "
-                                                    "argument function.")
+            raise OperatorExprError("", "There are not three argument "
+                                        "function.")
 
-    def execute_goto(self, node, queue) -> List[Node]:
-        label = node.token.value
-        basic_blocks = filter(lambda x:
-                              len([i for i in x.get_children()
-                                   if i.token.type == TokenTypes.Label and
-                                   i.token.value == label]) > 0,
-                              [i for i in self.root.get_children()
-                               if i.token.type is TokenTypes.BasicBlock])
-        queue.insert(0, next(basic_blocks))
-        return queue
+    @token_type_check_fabric((TokenTypes.Jump,))
+    def execute_jump(self, node) -> Node:
+        # Execute jump token. In value it has type of jump, it can be goto, if
+        # condition or return. Every type return node, basic block node to
+        # insert in queue.
+        if node.token.value == 'goto':
+            return self.execute_goto(node)
+        elif node.token.value == 'if':
+            return self.execute_if(node)
+        elif node.token.value == 'return':
+            return self.execute_return(node)
+        else:
+            raise ExecuteProgramError("", f"There is no jump with "
+                                          f"{node.token.value}.")
 
-    def execute_if(self, node, queue) -> List[Node]:
-        condition, true_label, false_label = node.get_children()
+    def execute_goto(self, node) -> Node:
+        label = node.get_child(TokenTypes.Label).token.value
+        for basic_block in self.root.get_children((TokenTypes.BasicBlock,)):
+            if basic_block.get_child(TokenTypes.Label).token.value == label:
+                return basic_block
+
+        raise ExecuteProgramError("", f"There is no block with {label} label.")
+
+    def execute_if(self, node) -> Node:
+        condition, true_label, false_label = \
+            node.get_children((TokenTypes.Expr, TokenTypes.Label))
         result_condition = self.execute_expr(condition)
         if result_condition == 1:
-            queue = self.execute_goto(true_label, queue)
-        else:
-            queue = self.execute_goto(false_label, queue)
-        return queue
+            return self.execute_goto(true_label)
+        return self.execute_goto(false_label)
 
-    def execute_return(self, node) -> None:
-        expr = node.get_children()[0]
+    def execute_return(self, node) -> Node:
+        expr = node.get_child(TokenTypes.Expr)
         result_expr = self.execute_expr(expr)
         print(result_expr)
-        self.clear_variables()
-
-    def clear_variables(self) -> None:
-        self.variables.clear()
+        return Node(Token(TokenTypes.Return))
